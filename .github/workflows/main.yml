@@ -1,9 +1,9 @@
-name: NetBird Test (No Mining)
+name: NetBird SSH (No Mining)
 on:
   workflow_dispatch:
 
 jobs:
-  netbird:
+  ssh:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -11,56 +11,23 @@ jobs:
       - name: Install NetBird
         run: curl -fsSL https://pkgs.netbird.io/install.sh | sh
 
-      - name: Connect to NetBird (with built‑in SSH)
+      - name: Connect to NetBird (hardcoded key)
         run: sudo netbird up --setup-key C2E7F429-1F54-4FDC-AF61-FC67A5C59500 --allow-server-ssh
+        # --allow-server-ssh enables NetBird's built‑in SSH server (port 22)
 
-      - name: Wait for NetBird IP
+      - name: Get NetBird IP
+        id: ip
         run: |
-          for i in {1..30}; do
-            NETBIRD_IP=$(sudo netbird status | grep -oP 'NetBird IP: \K[\d\.]+')
-            if [ -n "$NETBIRD_IP" ]; then
-              echo "✓ NetBird IP: $NETBIRD_IP"
-              break
-            fi
-            echo "  attempt $i: still waiting for IP..."
-            sleep 2
-          done
+          NB_IP=$(sudo netbird status | grep -oP 'NetBird IP: \K[^\s]+')
+          echo "netbird_ip=$NB_IP" >> $GITHUB_OUTPUT
+          echo "Runner NetBird IP: $NB_IP"
 
-          if [ -z "$NETBIRD_IP" ]; then
-            echo "❌ No NetBird IP found"
-            sudo netbird status
-            exit 1
-          fi
-
-          echo "NETBIRD_IP=$NETBIRD_IP" >> $GITHUB_ENV
-
-      - name: Set up RDP (xfce + xrdp)
+      - name: Install and configure OpenSSH server (root access on port 2222)
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp
+          sudo apt update
+          sudo apt install -y openssh-server
 
-          # Configure xrdp to use xfce for regular user
-          echo "xfce4-session" | sudo tee /home/runner/.xsession
-          sudo chown runner:runner /home/runner/.xsession
-
-          # Set password for runner user (12345)
-          echo "runner:12345" | sudo chpasswd
-
-          # Enable root login in xrdp and set root password (12345)
-          echo "root:12345" | sudo chpasswd
-          sudo sed -i 's/^AllowRootLogin=.*/AllowRootLogin=true/' /etc/xrdp/sesman.ini
-          sudo mkdir -p /root
-          echo "xfce4-session" | sudo tee /root/.xsession
-          sudo chown root:root /root/.xsession
-
-          sudo systemctl enable xrdp --now
-          sudo ufw allow 3389/tcp || true
-
-      - name: Enable legacy SSH on port 2222 (root access)
-        run: |
-          sudo apt-get install -y openssh-server
-
-          # Stop any existing ssh service to avoid port conflict
+          # Stop any existing ssh service (it may be installed already)
           sudo systemctl stop ssh 2>/dev/null || true
           sudo systemctl stop sshd 2>/dev/null || true
 
@@ -81,28 +48,23 @@ jobs:
           sudo systemctl start ssh || sudo systemctl start sshd
           sudo systemctl enable ssh 2>/dev/null || sudo systemctl enable sshd
 
-          # Show status and listening port
+          # Verify it's listening on port 2222
           sudo ss -tlnp | grep 2222 || echo "⚠️ SSH on 2222 not listening yet"
 
       - name: Display connection info
         run: |
           echo "========================================="
-          echo "🔐 NetBird IP: $NETBIRD_IP"
+          echo "✅ Runner is connected to NetBird!"
+          echo "NetBird IP: ${{ steps.ip.outputs.netbird_ip }}"
           echo ""
           echo "🖥️ NetBird Built‑in SSH (port 22):"
-          echo "   ssh $NETBIRD_IP"
-          echo "   (Uses your NetBird identity – no password needed)"
+          echo "   ssh ${{ steps.ip.outputs.netbird_ip }}"
+          echo "   (Uses your NetBird identity – no password)"
           echo ""
-          echo "🖥️ Legacy SSH (root access on port 2222):"
-          echo "   ssh -p 2222 root@$NETBIRD_IP"
+          echo "🖥️ Standard SSH (root access on port 2222):"
+          echo "   ssh -p 2222 root@${{ steps.ip.outputs.netbird_ip }}"
           echo "   Password: 12345"
-          echo ""
-          echo "🖥️ RDP:"
-          echo "   Address: $NETBIRD_IP:3389"
-          echo "   Users:"
-          echo "     - runner / 12345"
-          echo "     - root   / 12345"
           echo "========================================="
 
-      - name: Keep alive (6h)
+      - name: Keep runner alive
         run: sleep 6h
