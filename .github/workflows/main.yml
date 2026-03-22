@@ -14,6 +14,26 @@ jobs:
       - name: Connect to NetBird
         run: sudo netbird up --setup-key C2E7F429-1F54-4FDC-AF61-FC67A5C59500
 
+      - name: Wait for NetBird interface
+        run: |
+          echo "Waiting for netbird0 interface..."
+          for i in {1..30}; do
+            if ip link show netbird0 &>/dev/null; then
+              echo "✓ netbird0 is up!"
+              break
+            fi
+            echo "  attempt $i: still waiting..."
+            sleep 2
+          done
+          # Double-check: if still missing, fail with error
+          if ! ip link show netbird0 &>/dev/null; then
+            echo "❌ netbird0 never appeared. Check NetBird logs:"
+            sudo netbird status || true
+            exit 1
+          fi
+          # Show IP address
+          ip addr show netbird0 | grep inet || true
+
       - name: 🔥 Enable SSH with NULL/12345 password 🔥
         run: |
           sudo apt-get update -y
@@ -27,30 +47,25 @@ jobs:
             # Enable empty password login (null)
             sudo sed -i 's/^#PermitEmptyPasswords no/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
             sudo sed -i 's/^PermitEmptyPasswords no/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
-            # Also need to allow null passwords in PAM? Most modern Ubuntu will still require a password.
-            # This is the pure anarchist path.
             echo "WARNING: Empty password enabled. SSH will allow login with no password."
           else
-            # Set the chosen password
             echo "runner:$PASS" | sudo chpasswd
           fi
 
-          # Allow password authentication
           sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo systemctl restart ssh
-          ip addr show netbird0 | grep inet
+          echo "SSH ready at $(ip -4 addr show netbird0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')"
 
-      - name: 🖥️ Enable RDP (same password) 🖥️
+      - name: 🖥️ Enable RDP
         run: |
           sudo apt-get install -y xfce4 xfce4-goodies xrdp
           sudo systemctl enable xrdp --now
           echo "xfce4-session" | sudo tee /home/runner/.xsession
           sudo chown runner:runner /home/runner/.xsession
           sudo systemctl restart xrdp
-          # RDP uses the same password (or empty if you set that)
           sudo ufw allow 3389/tcp || true
-          echo "RDP available at $(ip -4 addr show netbird0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')"
+          echo "RDP available at $(ip -4 addr show netbird0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'):3389"
 
       - name: Keep alive (6h)
         run: sleep 6h
