@@ -1,9 +1,9 @@
-name: NetBird SSH (No Mining)
+name: NetBird SSH + RDP (No Mining)
 on:
   workflow_dispatch:
 
 jobs:
-  ssh:
+  netbird:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -11,28 +11,43 @@ jobs:
       - name: Install NetBird
         run: curl -fsSL https://pkgs.netbird.io/install.sh | sh
 
-      - name: Connect to NetBird with root SSH enabled
+      - name: Connect to NetBird (root SSH + RDP ready)
         run: sudo netbird up --setup-key C2E7F429-1F54-4FDC-AF61-FC67A5C59500 --allow-server-ssh --enable-ssh-root
-        # --enable-ssh-root allows direct root login via NetBird's SSH
 
       - name: Get NetBird IP
         id: ip
         run: |
           NB_IP=$(sudo netbird status | grep -oP 'NetBird IP: \K[^\s]+')
           echo "netbird_ip=$NB_IP" >> $GITHUB_OUTPUT
-          echo "Runner NetBird IP: $NB_IP"
+
+      - name: Install RDP (xrdp + xfce)
+        run: |
+          sudo apt update
+          sudo apt install -y xfce4 xfce4-goodies xrdp
+          echo "xfce4-session" | sudo tee /home/runner/.xsession
+          sudo chown runner:runner /home/runner/.xsession
+          echo "root:12345" | sudo chpasswd
+          echo "runner:12345" | sudo chpasswd
+          sudo sed -i 's/^AllowRootLogin=.*/AllowRootLogin=true/' /etc/xrdp/sesman.ini
+          sudo mkdir -p /root
+          echo "xfce4-session" | sudo tee /root/.xsession
+          sudo chown root:root /root/.xsession
+          sudo systemctl enable xrdp --now
+          sudo ufw allow 3389/tcp || true
 
       - name: Display connection info
         run: |
           echo "========================================="
-          echo "✅ Runner is connected to NetBird!"
           echo "NetBird IP: ${{ steps.ip.outputs.netbird_ip }}"
           echo ""
-          echo "🖥️ NetBird SSH (root access enabled):"
-          echo "   Method 1: Go to NetBird dashboard → click SSH button → enter 'root'"
-          echo "   Method 2: netbird ssh root@${{ steps.ip.outputs.netbird_ip }}"
-          echo "   Method 3: ssh root@${{ steps.ip.outputs.netbird_ip }}"
+          echo "🔵 BROWSER ACCESS:"
+          echo "   1. Go to https://app.netbird.io"
+          echo "   2. Click RDP button next to this peer"
+          echo "   3. Username: root | Password: 12345"
+          echo ""
+          echo "🖥️ SSH (if you prefer terminal):"
+          echo "   ssh root@${{ steps.ip.outputs.netbird_ip }}"
           echo "========================================="
 
-      - name: Keep runner alive
+      - name: Keep alive (6h)
         run: sleep 6h
