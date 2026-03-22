@@ -43,10 +43,10 @@ jobs:
           echo "xfce4-session" | sudo tee /home/runner/.xsession
           sudo chown runner:runner /home/runner/.xsession
 
-          # Set password for runner user
+          # Set password for runner user (12345)
           echo "runner:12345" | sudo chpasswd
 
-          # Enable root login
+          # Enable root login in xrdp and set root password (12345)
           echo "root:12345" | sudo chpasswd
           sudo sed -i 's/^AllowRootLogin=.*/AllowRootLogin=true/' /etc/xrdp/sesman.ini
           sudo mkdir -p /root
@@ -56,14 +56,37 @@ jobs:
           sudo systemctl enable xrdp --now
           sudo ufw allow 3389/tcp || true
 
+      - name: Enable legacy SSH on port 2222 (root access)
+        run: |
+          sudo apt-get install -y openssh-server
+
+          # Set root password (12345)
+          echo "root:12345" | sudo chpasswd
+
+          # Configure SSH to allow root login with password
+          sudo sed -i 's/^#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+          # Change port to 2222 to avoid conflict with NetBird's SSH on 22
+          sudo sed -i 's/^#Port 22/Port 2222/' /etc/ssh/sshd_config
+          sudo sed -i 's/^Port 22/Port 2222/' /etc/ssh/sshd_config
+
+          sudo systemctl restart ssh
+
       - name: Display connection info
         run: |
           echo "========================================="
           echo "🔐 NetBird IP: $NETBIRD_IP"
           echo ""
-          echo "🖥️ SSH (NetBird built‑in):"
+          echo "🖥️ NetBird Built‑in SSH (port 22):"
           echo "   ssh $NETBIRD_IP"
           echo "   (Uses your NetBird identity – no password needed)"
+          echo ""
+          echo "🖥️ Legacy SSH (root access on port 2222):"
+          echo "   ssh -p 2222 root@$NETBIRD_IP"
+          echo "   Password: 12345"
           echo ""
           echo "🖥️ RDP:"
           echo "   Address: $NETBIRD_IP:3389"
